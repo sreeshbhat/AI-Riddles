@@ -1,5 +1,5 @@
 import streamlit as st
-import cohere
+from groq import Groq
 import os
 from dotenv import load_dotenv
 
@@ -11,20 +11,20 @@ st.set_page_config(page_title="AI Vault: Riddles Edition", page_icon="🧩")
 
 # --- API KEY SETUP ---
 def get_api_key():
-    api_key = os.getenv("COHERE_API_KEY")
+    api_key = os.getenv("GROQ_API_KEY")
     if api_key: return api_key
     try:
-        if "COHERE_API_KEY" in st.secrets:
-            return st.secrets["COHERE_API_KEY"]
+        if "GROQ_API_KEY" in st.secrets:
+            return st.secrets["GROQ_API_KEY"]
     except: pass
     return None
 
 api_key = get_api_key()
 if not api_key:
-    st.error("COHERE_API_KEY not found. Please set it in your .env file or Streamlit Secrets.")
+    st.error("GROQ_API_KEY not found. Please set it in your .env file or Streamlit Secrets.")
     st.stop()
 
-co = cohere.Client(api_key=api_key)
+client = Groq(api_key=api_key)
 
 # --- GAME DATA ---
 RIDDLES = [
@@ -72,7 +72,7 @@ RIDDLES = [
         "riddle": "I identify whether a piece of text expresses positive, negative, or neutral emotion. What NLP task am I?",
         "answer": "sentiment analysis",
         "reward": "VAULT"
-    }, 
+    },
     {
         "riddle": "I am the famous 2017 paper that introduced the transformer architecture to the world. Name the paper.",
         "answer": "attention is all you need",
@@ -99,7 +99,7 @@ st.markdown("### Solve riddles to unlock the final vault code.")
 # Sidebar Progress
 with st.sidebar:
     st.header("Vault Progress")
-    st.write(f"Level: {st.session_state.current_level + 1} / {len(RIDDLES) + 1}")
+    st.write(f"Level: {st.session_state.current_level + 1} / {len(RIDDLES)}")
     
     st.subheader("Unlocked Code Parts:")
     if st.session_state.unlocked_words:
@@ -129,8 +129,8 @@ if st.session_state.current_level < len(RIDDLES):
     
     # Display Chat History for the current riddle
     for message in st.session_state.history:
-        with st.chat_message(message["role"].lower().replace("chatbot", "assistant")):
-            st.write(message["message"])
+        with st.chat_message(message["role"]):
+            st.write(message["content"])
 
     if prompt := st.chat_input("Enter your answer..."):
         # Check answer
@@ -145,6 +145,9 @@ if st.session_state.current_level < len(RIDDLES):
             with st.chat_message("user"):
                 st.write(prompt)
             
+            # Save user message to history
+            st.session_state.history.append({"role": "user", "content": prompt})
+
             with st.chat_message("assistant"):
                 with st.spinner("Guardian is providing a hint..."):
                     system_prompt = (
@@ -155,25 +158,28 @@ if st.session_state.current_level < len(RIDDLES):
                         "cryptic hint to help them solve it without giving the answer away."
                     )
                     try:
-                        # CONTEXT WINDOW MANAGEMENT: 
-                        # We limit history to the last 6 messages (3 turns) to stay within 
-                        # the model's window and demonstrate token management.
-                        response = co.chat(
-                            message=f"My answer is: '{prompt}'",
-                            chat_history=st.session_state.history[-6:],
-                            preamble=system_prompt
+                        # CONTEXT WINDOW MANAGEMENT: Pruning history to last 6 messages
+                        messages = [
+                            {"role": "system", "content": system_prompt},
+                            *st.session_state.history[-6:]
+                        ]
+                        
+                        chat_completion = client.chat.completions.create(
+                            messages=messages,
+                            model="llama3-8b-8192",
                         )
-                        ai_text = response.text
+                        ai_text = chat_completion.choices[0].message.content
                         st.write(ai_text)
-                        st.session_state.history.append({"role": "USER", "message": prompt})
-                        st.session_state.history.append({"role": "CHATBOT", "message": ai_text})
+                        
+                        # Save assistant message to history
+                        st.session_state.history.append({"role": "assistant", "content": ai_text})
                     except Exception as e:
                         st.error(f"AI Error: {e}")
 
 else:
     # Final Vault Level
     st.warning("🔒 **FINAL CHALLENGE:** Combine the unlocked parts to open the vault.")
-    st.write("Enter the full final phrase (all 3 words):")
+    st.write("Enter the full final phrase (all parts in order):")
     
     final_guess = st.text_input("Final Code...", key="final_input")
     if st.button("Unlock Vault"):
@@ -182,4 +188,3 @@ else:
             st.rerun()
         else:
             st.error("Incorrect. Look at the sidebar for your unlocked parts!")
-
