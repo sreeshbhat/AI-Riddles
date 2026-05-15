@@ -166,7 +166,7 @@ if st.session_state.current_level < len(RIDDLES):
                         
                         chat_completion = client.chat.completions.create(
                             messages=messages,
-                            model="llama3-8b-8192",
+                            model="llama-3.3-70b-versatile",
                         )
                         ai_text = chat_completion.choices[0].message.content
                         st.write(ai_text)
